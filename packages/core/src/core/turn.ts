@@ -92,6 +92,7 @@ export type ServerGeminiModelInfoEvent = {
 export interface StructuredError {
   message: string;
   status?: number;
+  type?: string;
 }
 
 export interface GeminiErrorEventValue {

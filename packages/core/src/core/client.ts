@@ -23,6 +23,7 @@ import { getCoreSystemPrompt } from './prompts.js';
 import { checkNextSpeaker } from '../utils/nextSpeakerChecker.js';
 import { reportError } from '../utils/errorReporting.js';
 import { GeminiChat } from './geminiChat.js';
+import { ToolErrorType } from '../tools/tool-error.js';
 import { retryWithBackoff } from '../utils/retry.js';
 import { getErrorMessage } from '../utils/errors.js';
 import { tokenLimit } from './tokenLimits.js';
@@ -417,16 +418,26 @@ export class GeminiClient {
     if (hooksEnabled && messageBus) {
       const hookOutput = await fireBeforeAgentHook(messageBus, request);
 
-      if (
-        hookOutput?.isBlockingDecision() ||
-        hookOutput?.shouldStopExecution()
-      ) {
+      if (hookOutput?.shouldStopExecution()) {
         yield {
           type: GeminiEventType.Error,
           value: {
-            error: new Error(
-              `BeforeAgent hook blocked processing: ${hookOutput.getEffectiveReason()}`,
-            ),
+            error: {
+              message: hookOutput.getEffectiveReason(),
+              type: ToolErrorType.STOP_EXECUTION,
+            },
+          },
+        };
+        return new Turn(this.getChat(), prompt_id);
+      }
+
+      if (hookOutput?.isBlockingDecision()) {
+        yield {
+          type: GeminiEventType.Error,
+          value: {
+            error: {
+              message: `BeforeAgent hook blocked processing: ${hookOutput.getEffectiveReason()}`,
+            },
           },
         };
         return new Turn(this.getChat(), prompt_id);
@@ -641,11 +652,22 @@ export class GeminiClient {
         responseText,
       );
 
-      // For AfterAgent hooks, blocking/stop execution should force continuation
-      if (
-        hookOutput?.isBlockingDecision() ||
-        hookOutput?.shouldStopExecution()
-      ) {
+      if (hookOutput?.shouldStopExecution()) {
+        // Immediate termination
+        yield {
+          type: GeminiEventType.Error,
+          value: {
+            error: {
+              message: hookOutput.getEffectiveReason(),
+              type: ToolErrorType.STOP_EXECUTION,
+            },
+          },
+        };
+        return turn;
+      }
+
+      // For AfterAgent hooks, blocking decision still forces continuation
+      if (hookOutput?.isBlockingDecision()) {
         const continueReason = hookOutput.getEffectiveReason();
         const continueRequest = [{ text: continueReason }];
         yield* this.sendMessageStream(

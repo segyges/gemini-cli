@@ -628,19 +628,37 @@ export const useGeminiStream = (
         addItem(pendingHistoryItemRef.current, userMessageTimestamp);
         setPendingHistoryItem(null);
       }
-      addItem(
-        {
-          type: MessageType.ERROR,
-          text: parseAndFormatApiError(
-            eventValue.error,
-            config.getContentGeneratorConfig()?.authType,
-            undefined,
-            config.getModel(),
-            DEFAULT_GEMINI_FLASH_MODEL,
-          ),
-        },
-        userMessageTimestamp,
-      );
+
+      // Check if this is a hook stopping execution
+      const structuredError = eventValue.error;
+      if (
+        typeof structuredError === 'object' &&
+        structuredError !== null &&
+        'type' in structuredError &&
+        structuredError.type === ToolErrorType.STOP_EXECUTION
+      ) {
+        addItem(
+          {
+            type: MessageType.INFO,
+            text: `Agent execution stopped: ${structuredError.message}`,
+          },
+          userMessageTimestamp,
+        );
+      } else {
+        addItem(
+          {
+            type: MessageType.ERROR,
+            text: parseAndFormatApiError(
+              eventValue.error,
+              config.getContentGeneratorConfig()?.authType,
+              undefined,
+              config.getModel(),
+              DEFAULT_GEMINI_FLASH_MODEL,
+            ),
+          },
+          userMessageTimestamp,
+        );
+      }
       setThought(null); // Reset thought when there's an error
     },
     [addItem, pendingHistoryItemRef, setPendingHistoryItem, config, setThought],
